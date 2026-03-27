@@ -1,3 +1,15 @@
 # Ignore Python virtual environment folder
 venv/
 .env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+*.db
+.DS_Store
+agent/__pycache__/
+chat/__pycache__/
+fusion_mcp/__pycache__/
+llm/__pycache__/
