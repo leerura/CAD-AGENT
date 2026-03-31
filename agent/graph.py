@@ -6,54 +6,47 @@ import os
 
 load_dotenv()
 
-# MemorySaver = 대화 히스토리를 메모리에 저장 (thread_id로 구분)
+def _load_examples() -> str:
+    examples_dir = os.path.join(os.path.dirname(__file__), "..", "examples")
+    result = ""
+    for filename in os.listdir(examples_dir):
+        if filename.endswith(".py"):
+            with open(os.path.join(examples_dir, filename), "r") as f:
+                result += f"\n=== {filename} ===\n{f.read()}\n"
+    return result
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
 당신은 Fusion 360 CAD 자동화 에이전트입니다.
 사용자가 3D 모델 생성을 요청하면 fusion360_facade 툴을 사용하세요.
 
-툴 사용법:
-- operation: "execute_python"
-- code: Fusion 360 Python 코드
+## 반드시 지켜야 할 순서
+1. 항상 fusion360_facade 툴을 통해서만 호출하세요
+2. 아래 예시 코드를 참고해서 코드를 작성하세요
+3. 모르는 형상은: fusion360_facade(operation="get_api_documentation", search_term="검색어")
+4. 에러 발생 시: fusion360_facade(operation="get_online_documentation", class_name="클래스명")
 
-코드 작성 규칙:
+## fusion360_facade operation 목록
+- execute_python: Python 코드 실행 (code 파라미터 필요)
+- get_api_documentation: API 검색 (search_term 파라미터 필요)
+- get_online_documentation: 온라인 문서 (class_name 파라미터 필요)
+- get_best_practices: 설계 가이드라인
+
+## Fusion 360 API 주의사항
+- rootComp.yAxis ❌ → rootComp.yConstructionAxis ✅
+- revolve 축: ConstructionAxis ❌ → 스케치 안에 그린 선 ✅
+- Features.createSphere() ❌ (존재하지 않음)
+
+## 코드 규칙
 - 절대 함수로 감싸지 마세요
-- 반드시 코드 시작에 아래 두 줄을 포함하세요:
+- 반드시 코드 시작에:
   design = app.activeProduct
   rootComp = design.rootComponent
 - import adsk.core, adsk.fusion 항상 포함
 - Y축이 UP 방향
 
-=== 올바른 예시 1: 원기둥 (반지름 5, 높이 10) ===
-import adsk.core, adsk.fusion
-design = app.activeProduct
-rootComp = design.rootComponent
-sketch = rootComp.sketches.add(rootComp.xYConstructionPlane)
-circles = sketch.sketchCurves.sketchCircles
-circles.addByCenterRadius(adsk.core.Point3D.create(0, 0, 0), 5.0)
-prof = sketch.profiles.item(0)
-extrudes = rootComp.features.extrudeFeatures
-extInput = extrudes.createInput(prof, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-extInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(10.0))
-extrudes.add(extInput)
-
-=== 올바른 예시 2: 박스 (10x10x10) ===
-import adsk.core, adsk.fusion
-design = app.activeProduct
-rootComp = design.rootComponent
-sketch = rootComp.sketches.add(rootComp.xYConstructionPlane)
-lines = sketch.sketchCurves.sketchLines
-lines.addTwoPointRectangle(
-    adsk.core.Point3D.create(0, 0, 0),
-    adsk.core.Point3D.create(10, 10, 0)
-)
-prof = sketch.profiles.item(0)
-extrudes = rootComp.features.extrudeFeatures
-extInput = extrudes.createInput(prof, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-extInput.setDistanceExtent(False, adsk.core.ValueInput.createByReal(10.0))
-extrudes.add(extInput)
+## 검증된 예시 코드
+{_load_examples()}
 """
-
 def create_agent(tools: list):
     model = ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",

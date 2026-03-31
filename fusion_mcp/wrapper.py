@@ -11,7 +11,10 @@ FUSION_TOKEN = os.getenv("FUSION_TOKEN")
 FUSION_AUTH = os.getenv("FUSION_AUTH")
 
 @tool
-async def fusion360_facade(operation: str, code: str = "") -> str:
+async def fusion360_facade(operation: str, code: str = "",search_term: str = "",
+    class_name: str = "",
+    member_name: str = ""
+) -> str:
     """
     Fusion 360을 제어하는 통합 도구입니다.
     operation: execute_python, get_best_practices, get_api_documentation
@@ -38,6 +41,16 @@ async def fusion360_facade(operation: str, code: str = "") -> str:
 
     if code:
         params["code"] = code
+    if search_term:
+        params["search_term"] = search_term
+    if class_name:
+        params["class_name"] = class_name
+    if member_name:
+        params["member_name"] = member_name
 
-    result = await fusion_tool.ainvoke(params)
-    return str(result)
+
+    try:
+        result = await fusion_tool.ainvoke(params)
+        return str(result)
+    except Exception as e:
+        return f"에러 발생: {str(e)}\n코드를 분석하고 수정해서 다시 시도하세요."
