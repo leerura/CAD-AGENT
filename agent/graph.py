@@ -7,12 +7,22 @@ import os
 load_dotenv()
 
 def _load_examples() -> str:
-    examples_dir = os.path.join(os.path.dirname(__file__), "..", "examples")
+    base_dir = os.path.join(os.path.dirname(__file__), "..", "examples")
     result = ""
-    for filename in os.listdir(examples_dir):
-        if filename.endswith(".py"):
-            with open(os.path.join(examples_dir, filename), "r") as f:
-                result += f"\n=== {filename} ===\n{f.read()}\n"
+
+    # primitives/ 먼저, assemblies/ 나중에 순서 고정
+    for section in ["primitives", "assemblies"]:
+        section_dir = os.path.join(base_dir, section)
+        if not os.path.exists(section_dir):
+            continue
+
+        result += f"\n{'='*40}\n## {section.upper()}\n{'='*40}\n"
+
+        for filename in sorted(os.listdir(section_dir)):  # sorted로 순서 고정
+            if filename.endswith(".py"):
+                with open(os.path.join(section_dir, filename), "r") as f:
+                    result += f"\n=== {filename} ===\n{f.read()}\n"
+
     return result
 
 SYSTEM_PROMPT = f"""
@@ -35,18 +45,51 @@ SYSTEM_PROMPT = f"""
 - rootComp.yAxis ❌ → rootComp.yConstructionAxis ✅
 - revolve 축: ConstructionAxis ❌ → 스케치 안에 그린 선 ✅
 - Features.createSphere() ❌ (존재하지 않음)
+- PTransaction.Rollback ❌ → PTransaction.Cancel ✅
+- getNormalAtPoint(point, normal) ❌ (pass-by-ref 아님) → offset construction plane 방식으로 면 접근 ✅
 
 ## 코드 규칙
 - 절대 함수로 감싸지 마세요
 - 반드시 코드 시작에:
-  design = app.activeProduct
-  rootComp = design.rootComponent
-- import adsk.core, adsk.fusion 항상 포함
+  import adsk.core, adsk.fusion
+  app = adsk.core.Application.get()
+  design = adsk.fusion.Design.cast(app.activeProduct)
+  root = design.rootComponent
 - Y축이 UP 방향
+- 모든 코드는 PTransaction으로 감싸서 실패 시 롤백하세요:
+  app.executeTextCommand('PTransaction.Start "작업명"')
+  try:
+      ...
+      app.executeTextCommand('PTransaction.Commit')
+  except Exception as e:
+      app.executeTextCommand('PTransaction.Cancel')
+      raise
+- 윗면(Top face) 스케치가 필요할 때는 face 직접 참조 ❌
+  → constructionPlanes.setByOffset(xyPlane, height) 방식 ✅
+- Boolean 연산 시 target body는 item(0), tool body는 item(1) 순서 주의
 
 ## 검증된 예시 코드
 {_load_examples()}
+
+## 다중 구멍/컷 패턴
+# ❌ 잘못된 방식: 구멍마다 별도 Extrude Cut 반복
+for pos in positions:
+    cutInput = extrudes.createInput(profile, NewBodyFeatureOperation)  # 플레이트가 복제됨!
+
+# ✅ 올바른 방식: 한 스케치에 모든 원을 그리고 ObjectCollection으로 한번에 Cut
+holeSketch = sketches.add(topPlane)
+for x, y, z in positions:
+    holeSketch.sketchCurves.sketchCircles.addByCenterRadius(
+        adsk.core.Point3D.create(x, y, z), radius
+    )
+profileCollection = adsk.core.ObjectCollection.create()
+for i in range(holeSketch.profiles.count):
+    profileCollection.add(holeSketch.profiles.item(i))
+cutInput = extrudes.createInput(profileCollection, CutFeatureOperation)
+cutInput.setAllExtent(adsk.fusion.ExtentDirections.NegativeExtentDirection)
+extrudes.add(cutInput)
 """
+
 def create_agent(tools: list):
     model = ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
