@@ -127,7 +127,7 @@ extrudes.add(cutInput)
 
 def create_agent(tools: list):
     model = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY")
     )
     agent = create_react_agent(
