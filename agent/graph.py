@@ -46,7 +46,7 @@ SYSTEM_PROMPT = f"""
 - revolve 축: ConstructionAxis ❌ → 스케치 안에 그린 선 ✅
 - Features.createSphere() ❌ (존재하지 않음)
 - PTransaction.Rollback ❌ → PTransaction.Cancel ✅
-- getNormalAtPoint(point, normal) ❌ (pass-by-ref 아님) → offset construction plane 방식으로 면 접근 ✅
+- getNormalAtPoint(point, normal) ❌ → offset construction plane 방식 ✅
 
 ## 코드 규칙
 - 절대 함수로 감싸지 마세요
@@ -56,7 +56,7 @@ SYSTEM_PROMPT = f"""
   design = adsk.fusion.Design.cast(app.activeProduct)
   root = design.rootComponent
 - Y축이 UP 방향
-- 모든 코드는 PTransaction으로 감싸서 실패 시 롤백하세요:
+- 모든 코드는 PTransaction으로 감싸세요:
   app.executeTextCommand('PTransaction.Start "작업명"')
   try:
       ...
@@ -64,30 +64,65 @@ SYSTEM_PROMPT = f"""
   except Exception as e:
       app.executeTextCommand('PTransaction.Cancel')
       raise
-- 윗면(Top face) 스케치가 필요할 때는 face 직접 참조 ❌
-  → constructionPlanes.setByOffset(xyPlane, height) 방식 ✅
-- Boolean 연산 시 target body는 item(0), tool body는 item(1) 순서 주의
 
-## 검증된 예시 코드
-{_load_examples()}
+## Body 추적 규칙
+- root.bRepBodies.item(0) ❌ → feature.bodies.item(0) ✅
+  잔여 body가 있을 경우 index가 틀릴 수 있음
+  반드시 feature 반환값에서 body를 추적할 것:
+  bodyH = extrudes.add(extInput).bodies.item(0)
+  body  = combineFeatures.add(combineInput).bodies.item(0)
 
-## 다중 구멍/컷 패턴
-# ❌ 잘못된 방식: 구멍마다 별도 Extrude Cut 반복
-for pos in positions:
-    cutInput = extrudes.createInput(profile, NewBodyFeatureOperation)  # 플레이트가 복제됨!
+## 면(Face) 스케치 규칙
+- 수평면(XY 평행) 스케치: offset construction plane 사용 ✅
+  pi = planes.createInput()
+  pi.setByOffset(xyPlane, adsk.core.ValueInput.createByReal(height))
+  sketch = sketches.add(planes.add(pi))
 
-# ✅ 올바른 방식: 한 스케치에 모든 원을 그리고 ObjectCollection으로 한번에 Cut
+- 수직면(XZ 평행, Y방향 구멍) 스케치: body face 직접 사용 + modelToSketchSpace ✅
+  frontFace = None
+  for face in body.faces:
+      fbb = face.boundingBox
+      if abs(fbb.minPoint.y) < 0.01 and abs(fbb.maxPoint.y) < 0.01:
+          if fbb.maxPoint.x - fbb.minPoint.x > width-1 and fbb.maxPoint.z - fbb.minPoint.z > height-1:
+              frontFace = face
+              break
+  skV = sketches.add(frontFace)
+  skV.sketchCurves.sketchCircles.addByCenterRadius(
+      skV.modelToSketchSpace(adsk.core.Point3D.create(x, 0, z)), radius)
+
+## 프로파일 선택 규칙
+- face에 스케치 시 profiles에 큰 면 영역이 포함될 수 있음
+- 원 프로파일만 필요할 때는 면적으로 필터링:
+  pc = adsk.core.ObjectCollection.create()
+  for i in range(sketch.profiles.count):
+      prof = sketch.profiles.item(i)
+      pbb = prof.boundingBox
+      if (pbb.maxPoint.x-pbb.minPoint.x)*(pbb.maxPoint.y-pbb.minPoint.y) < 20:
+          pc.add(prof)
+
+## Extrude Cut 방향 규칙
+- offset plane (XY 평행) 에서 아래로 cut:
+  cutInput.setAllExtent(adsk.fusion.ExtentDirections.NegativeExtentDirection)
+- body face (Y=0 앞면) 에서 안쪽으로 cut:
+  cutInput.setAllExtent(adsk.fusion.ExtentDirections.NegativeExtentDirection)
+- 모두 NegativeExtentDirection 사용 ✅
+
+## 다중 구멍 패턴
+# ❌ 구멍마다 별도 Extrude Cut → body 복제됨
+# ✅ 한 스케치에 모든 원 → ObjectCollection으로 한번에 Cut
 holeSketch = sketches.add(topPlane)
 for x, y, z in positions:
     holeSketch.sketchCurves.sketchCircles.addByCenterRadius(
-        adsk.core.Point3D.create(x, y, z), radius
-    )
+        adsk.core.Point3D.create(x, y, z), radius)
 profileCollection = adsk.core.ObjectCollection.create()
 for i in range(holeSketch.profiles.count):
     profileCollection.add(holeSketch.profiles.item(i))
-cutInput = extrudes.createInput(profileCollection, CutFeatureOperation)
+cutInput = extrudes.createInput(profileCollection, adsk.fusion.FeatureOperations.CutFeatureOperation)
 cutInput.setAllExtent(adsk.fusion.ExtentDirections.NegativeExtentDirection)
 extrudes.add(cutInput)
+
+## 검증된 예시 코드
+{_load_examples()}
 """
 
 def create_agent(tools: list):
