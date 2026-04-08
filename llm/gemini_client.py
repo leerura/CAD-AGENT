@@ -10,7 +10,7 @@ class GeminiClient(LLMClient):
 
     def __init__(self):
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        self.session = self.client.chats.create(model="gemini-2.0-flash")
+        self.session = self.client.chats.create(model="gemini-2.5-flash")
 
     def chat(self, message: str) -> str:
         response = self.session.send_message(message)
